@@ -1,0 +1,596 @@
+---
+title: "Gastos Hormiga"
+output: html_document
+df_print: paged
+---
+
+Este documento muestra cómo se limpiaron los datos de la base original para ser 
+utilizada para generar un modelo de random forest para predecir qué transacciones
+pueden ser considerados gasto hormiga. El propósito de hacer esta clasificación
+es comunicar a los clientes qué gastos pueden estar afectando su salud financiera
+sin darse cuenta.
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(tidytext)
+library(tm)
+library(stopwords)
+library(topicmodels)
+```
+
+Lectura de los datos
+```{r}
+dir <- "datathon-personal"
+
+datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
+  janitor::clean_names()
+```
+
+
+Definición de las actividades esenciales y las no esenciales. Filtrado de la 
+base de datos para obtener las actividades no esenciales.
+
+El transporte aereo se incluye en el primer apartado no porque se considere 
+esencial, sino porque el propósito de hacer la distinción es la de poder definir
+los gastos hormiga, entre cuyas características se incluye que son no planeados,
+mientras que el transporte aéreo suele ser premeditado.
+
+```{r}
+esenciales <- c('GOBIERNO','FARMACIAS','MEDICOS Y DENTISTAS',
+                'SUPERMERCADOS','GASOLINERAS','TELECOMUNICACIONES',
+                'COLEGIOS Y UNIVERSIDADES','HOSPITALES','EDUCACIN BASICA',
+                'ASEGURADORAS','PEAJE','GUARDERIAS','REFACCIONES Y FERRETERIA',
+                'TRANSPORTE AEREO')
+
+no_esenciales <- datos%>%
+  filter(!giro_nombre %in% esenciales)%>%
+  select(nombre_comercio)
+
+datos_tot_no_ese <- datos%>%
+  filter(!giro_nombre %in% esenciales)
+
+analisis <- datos_tot_no_ese%>%
+  mutate(id = row_number())%>%
+  #select(-row_num)%>%
+  as_tibble()
+```
+
+
+
+Para obtener más información sobre los establecimiento, se realiza análisis de 
+texto de los nombres de los negocios en los que se realizaron las transacciomes.
+Las palabras que no ofrecen contexto sobre la actividad del negocio son 
+eliminadas.
+
+```{r}
+# Palabras de paro
+stop_words = tibble(palabra = c(stopwords('es'),'c','remite','presentado',
+                                'manera','considera','inició','12r','así',
+                                'cuenta','n','mismo','méxico','cada',"toda",'CIUDAD',
+                                'MEX001','VERACRUZ','SANPEDRO','GARN','MORELIA','MICH',
+                                'GARZA','GARCIA','NL','877-SEPHORA','SOLIDARIDAD','QQR',
+                                'SAN','FRANCISCO','QQU','BCS','BS','GOMEZ','PALACIO010',
+                                'MATAMOROS','ACACAPULCO','MICMI','PARROQVERACRUZ',
+                                'VER','030','SN','PEDRO','GARZ001','CELAYA','GTO','GU',
+                                'MONTERREY','NL','XALAPA','ciudad','mex001','nl','df',
+                                'mx','monterrey','bcn','bcn','000','mex09','sn','snp',
+                                'd','em','jal','com','001','019','pedro','guadalajara',
+                                'zapopan','650','2530000','16','00','ca','1','mexdf','pending',
+                                'mexico','ca','7','mexcmx','tijuana','stripe',
+                                'sc','str','morelia','mich','mexcmx','san','apodaca',
+                                'yuc','mty','amsterdam','nle','guadalupe','nicolas','ztl','s',
+                                'santiago','ver','juarez','merida','j','mex','pue','coah',
+                                'london','ja','benito','santa','miguel','conekta','ii',
+                                'chihuahua','jja','j','mex '))
+
+
+
+# Bolsa de palabras
+data_words = analisis%>%
+  # mutate(
+  #   # Sustituir los bigramas en el texto completo 
+  #   propuestas = str_replace_all(propuestas,bigramas_dict)
+  # )%>%
+  # Tokenizar
+  unnest_tokens(
+    output = 'palabra',
+    token = 'words',
+    input = nombre_comercio
+  )%>%
+  anti_join(
+    stop_words
+  )%>%
+  count(id,palabra)
+```
+
+
+
+
+Se eliminan también todos los números y los nombres de negocio que hayan quedado
+vacíos. Se conservan todos los negocios no esenciales que quedan.
+```{r}
+numericos <- data_words%>%
+  group_by(palabra)%>%
+  summarise(total = n())%>%
+  mutate(palabra = as.numeric(palabra))%>%
+  na.omit()%>%
+  mutate(palabra = as.character(palabra))%>%
+  pull(palabra)
+
+
+total_words <- data_words%>%
+  group_by(palabra)%>%
+  summarise(total = n())%>%
+  filter(!palabra %in% numericos,
+         total > 50)
+
+
+sin_num <- total_words%>%
+  mutate(palabra = removeNumbers(palabra))%>%
+  filter(!palabra == "")%>%
+  pull(palabra)
+  
+pat <- paste0(sin_num, collapse = '|')
+
+
+library("quanteda")
+
+corpus <- corpus(datos_tot_no_ese$nombre_comercio)
+summary(corpus)
+
+data_corpus_inauguralsents <- 
+   corpus_reshape(corpus, to = "sentences")
+
+data_corpus_inauguralsents <-
+  corpus_reshape(corpus, to = "sentences")
+
+data_corpus_inauguralsents
+
+
+containstarget <- 
+  stringr::str_detect((corpus), pat)
+
+summary(containstarget)
+
+data_corpus_inauguralsentssub <- corpus_subset(data_corpus_inauguralsents, containstarget)
+
+vector <- as.vector(data_corpus_inauguralsentssub)
+
+primer_filtro_p <- datos_tot_no_ese%>%
+  filter(nombre_comercio %in% vector)
+```
+
+
+Se hace un clustering de K Means para clasificar los potenciales gastos hormiga 
+en distintas categorías según el tiempo a partir del primer gasto realizado, así
+como el monto de la transacción.
+```{r}
+library(lubridate)
+
+
+#### K MEANS CLUSTERING
+
+primer_filtro_p$fecha_transaccion <- as.Date(primer_filtro_p$fecha_transaccion)
+fecha_referencia <- as.Date(min(primer_filtro_p$fecha_transaccion))
+primer_filtro_p$tiempo <- as.numeric(difftime(primer_filtro_p$fecha_transaccion,fecha_referencia,units = "days"))
+datos_cluster <- primer_filtro_p[, c("monto_transaccion", "tiempo")]
+```
+
+
+Se agrega a la matriz de las transacciones la clasificación que se le dio según 
+el clustering de K Means.
+```{r}
+primer_filtro_p <- primer_filtro_p %>%
+  mutate(cluster=resultado_kmeans$cluster)
+
+
+primer_filtro_p %>%
+  group_by(cluster) %>%
+  summarise(cantidad_transacciones = n(),
+            tiempo_promedio = mean(tiempo),
+            monto_promedio = mean(monto_transaccion))
+```
+
+
+Se utiliza una semilla y se genera un sample de los 10000 usuarios para entrenar
+nuestro modelo.
+
+```{r}
+set.seed(123)
+ids_leon <- sample((1:10000),300)
+ids_alexa <- setdiff(sample(1:10000),ids_leon) %>% sample(300)
+
+leon<- primer_filtro_p %>% filter(id_cliente %in% ids_leon)
+alexa<- primer_filtro_p %>% filter(id_cliente %in% ids_alexa)
+
+#write.csv(leon,"Datos/leon.csv")
+#write.csv(alexa,"Datos/alexa.csv")
+```
+
+
+
+
+ Modelos de prediccion 
+
+ Leer datos
+```{r}
+library(gtools)
+library(lubridate)
+
+dir <- "Datos/"
+
+leon <- read_csv(paste0(dir,"leon.csv"))%>%
+  filter(!is.na(hormiga))
+
+alexa <- read_csv(paste0(dir,"alexa.csv"))%>%
+  filter(!is.na(hormiga))
+
+todos_muestra <- smartbind(as.data.frame(leon),as.data.frame(alexa))%>%
+  filter(!hormiga == "9")%>%
+  mutate(giro_nombre = as.factor(giro_nombre),
+         mcc_nombre = as.factor(mcc_nombre),
+         entry_mode = as.factor(entry_mode),
+         sexo_cliente = as.factor(sexo_cliente),
+         nombre_comercio = as.factor(nombre_comercio),
+         
+         #id_cliente = as.factor(id_cliente),
+         hormiga = as.factor(hormiga)
+  )%>%
+  as.data.frame()
+
+sum(is.na(todos_muestra))
+table(todos_muestra$hormiga)
+
+
+muestra_clas <- todos_muestra%>%
+  pull(id_cliente)%>%
+  unique()
+
+dir_p <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
+
+v_datos_no_clas <- read_csv(paste0(dir_p,"/simulacion_hormiga.csv"))%>%
+  filter(id_cliente %in% muestra_clas)%>%
+  mutate(giro_nombre = as.factor(giro_nombre),
+         mcc_nombre = as.factor(mcc_nombre),
+         entry_mode = as.factor(entry_mode),
+         sexo_cliente = as.factor(sexo_cliente),
+         #id_cliente = as.factor(id_cliente),
+         hormiga = as.factor(hormiga)
+  )%>%
+  mutate(
+    fecha_hora = dmy_hm(fecha_transaccion),
+    mes = month(fecha_hora),
+    dia_sem = wday(fecha_hora),
+    dia_num = day(fecha_hora),
+    hora = hour(fecha_hora),
+    ano = year(fecha_hora)
+  )%>%
+  pull(id_cliente)%>%
+  unique()
+  
+muestra <- sample(v_datos_no_clas,size = 25, replace = FALSE)
+```
+
+
+
+
+
+ NORMAL-------------------------------
+```{r}
+base_comp_test <- read_csv(paste0(dir_p,"/simulacion_hormiga.csv"))%>%
+  filter(id_cliente %in% muestra)%>%
+  mutate(giro_nombre = as.factor(giro_nombre),
+         mcc_nombre = as.factor(mcc_nombre),
+         entry_mode = as.factor(entry_mode),
+         sexo_cliente = as.factor(sexo_cliente),
+         hormiga = "NA",
+         hormiga = as.character(hormiga)
+         #id_cliente = as.factor(id_cliente),
+         #hormiga = as.factor(hormiga)
+  )%>%
+  # mutate(
+  #   fecha_hora = dmy_hm(fecha_transaccion),
+  #   mes = month(fecha_hora),
+  #   dia_sem = wday(fecha_hora),
+  #   dia_num = day(fecha_hora),
+  #   hora = hour(fecha_hora),
+  #   ano = year(fecha_hora),
+  #   
+  # )%>%
+  filter(id_cliente %in% muestra)%>%
+  as.data.frame()%>%
+  smartbind(todos_muestra)
+```
+
+
+
+
+
+ RANDOM FOREST ------------------------------------------------
+ Bosques aleatorios -----------------------------------------------------------
+ Instalación y carga de paqueterías
+ Cargar ranger                                                       
+```{r}
+if(require(ranger) == FALSE){                                                
+  install.packages('ranger')                                                 
+}
+```
+
+
+
+
+ Instalación y carga de paqueterías
+ Instalar - Cargar tidymodels    
+```{r}
+if(require(tidymodels) == FALSE){                                                
+  install.packages('tidymodels')                                                 
+  library(tidymodels)                                                            
+}else{                                                                          
+  library(tidymodels)                                                            
+}
+```
+
+
+
+ Instalar - Cargar patchwork   
+```{r}
+if(require(patchwork) == FALSE){                                                
+  install.packages('patchwork')                                                 
+  library(patchwork)                                                            
+}else{                                                                          
+  library(patchwork)                                                            
+}
+
+```
+
+
+ Instalación y carga de paqueterías
+ Instalar - Cargar vip        
+```{r}
+if(require(vip) == FALSE){                                                
+  install.packages('vip')                                                 
+  library(vip)                                                            
+}else{                                                                          
+  library(vip)                                                            
+}
+```
+
+
+
+ Instalación y carga de paqueterías
+ Instalar glmnet    
+```{r}
+if(require(glmnet) == FALSE){                                                
+  install.packages('glmnet')                                                 
+}
+```
+
+
+ Instalación y carga de paqueterías
+ Instalar GGally                                                       
+
+```{r}
+if(require(GGally) == FALSE){                                                
+  install.packages('GGally')                                                 
+}
+```
+
+
+```{r}
+dir_p <- "datathon-personal"
+
+  
+
+library(lubridate)
+
+# datos <- read_csv(paste0(dir,"/simulacion_hormiga.csv"))%>%
+#   mutate(giro_nombre = as.factor(giro_nombre),
+#          mcc_nombre = as.factor(mcc_nombre),
+#          entry_mode = as.factor(entry_mode),
+#          sexo_cliente = as.factor(sexo_cliente),
+#          id_cliente = as.factor(id_cliente),
+#          hormiga = as.factor(hormiga)
+#          )%>%
+#   mutate(
+#     fecha_hora = dmy_hm(fecha_transaccion),
+#     mes = month(fecha_hora),
+#     dia_sem = wday(fecha_hora),
+#     dia_num = day(fecha_hora),
+#     hora = hour(fecha_hora),
+#     ano = year(fecha_hora),
+#     
+#   )
+```
+
+
+
+```{r}
+data_split = todos_muestra %>% 
+  initial_split(
+    strata = hormiga
+  )
+
+entrenamiento = training(data_split)
+prueba = testing(data_split)
+```
+
+
+
+ Separa en conjunto de prueba y entrenamiento
+```{r}
+#nrow(datos)
+
+nrow(entrenamiento)
+nrow(prueba)
+
+```
+
+
+
+ Crea una receta
+ tipo_gasto si es hormiga o no 
+ Para random forest no es necesario normalizar pues no se basa en 
+ distancias (en knn o k means si es necesario normalizar)
+```{r}
+receta = recipe(formula = hormiga ~ giro_nombre+ mcc_nombre +
+                  monto_transaccion + tipo_transaccion, data = entrenamiento) 
+#%>%
+  # Remueve las variables sin varianza
+  #step_zv(all_numeric(), -all_outcomes()) %>%
+  # Normaliza las variables numericas
+  #step_normalize(all_numeric(), -all_outcomes())
+
+# Construye las muestras de validación cruzada con los datos de entrenamiento
+validacion_cruzada = vfold_cv(entrenamiento, v = 5)
+
+
+
+
+
+# Fija una semilla
+setajuste_bosque = rand_forest() %>% 
+  # Fija el motor
+  # The basic idea of the permutation variable importance approach 
+  # is to consider a variable important if it has a positive effect on the prediction performance.
+  # https://github.com/imbs-hl/ranger/issues/237
+  set_engine("ranger", importance = "permutation") %>% 
+  # Fijo el modo, en este caso queremos hacer clasificacion
+  set_mode("classification") %>% 
+  # Fija los argumentos
+  set_args( 
+    # Numero de predictores por muestra
+    mtry = tune(),
+    # Numero de árboles
+    trees = 100,
+    # Minimo de observaciones
+    min_n = tune()
+  )
+.seed(123)
+```
+
+
+
+
+Creamos el cascarón del modelo de bosques aleatorios
+
+```{r}
+# Define el flujo de trabajo
+flujo_bosque = workflow() %>% 
+  # Agrega la receta
+  add_recipe(receta) %>% 
+  # Agrega el modelo 
+  add_model(ajuste_bosque) 
+
+
+# Genera una muestra aleatoria de parametros
+bosque_grid = grid_regular(
+  mtry(range = c(2, ncol(entrenamiento) - 1)),
+  min_n(range = c(1, 6)), levels = 3)
+
+# Agrega elementos de control
+ctrl = control_grid(verbose = TRUE)
+
+# Entrenamiento con validacion cruzada
+bosque_tunning = flujo_bosque %>% 
+  tune_grid(
+    # Usa las muestras de validación cruzada
+    resamples = validacion_cruzada,
+    # Recorre la maya de hyperparametros
+    grid = bosque_grid,
+    # Agrega los elementos de control
+    control = ctrl,
+    # Define las métricas
+    metrics = metric_set(accuracy, sens, spec, roc_auc, kap))
+
+
+# Imprime las métricas del modelo bosque     
+metricas_bosque = bosque_tunning %>% 
+  collect_metrics() 
+
+print(metricas_bosque)
+
+# Mejor modelo bosque
+mejor_bosque = bosque_tunning %>% 
+  select_best('roc_auc')
+
+print(mejor_bosque)
+
+# Selecciona el mejor modelo
+ajuste_bosque_final = flujo_bosque %>% 
+  # Finaliza el flujo usando el mejor modelo
+  finalize_workflow(mejor_bosque)
+
+
+
+```
+
+
+Revisa como se comporta el conjunto de entrenamiento
+```{r}
+ajuste_bosque_final %>% 
+  # Ajusta sobre el conjunto
+  fit(entrenamiento) %>% 
+  # Extrae el ajuste
+  extract_fit_parsnip()  %>% 
+  # Revisa la importancia de variables
+  vip::vi() %>%
+  mutate(
+    Importance = abs(Importance),
+    # Ordena por importancia
+    Variable = fct_reorder(Variable, Importance),
+  ) %>%
+  # Grafica de importancia
+  ggplot(aes(x = Importance, y = Variable)) +
+  # Agrega columnas
+  geom_col() +
+  # Modifica el eje x
+  scale_x_continuous(
+    # Ajusta los márgenes
+    expand = c(0, 0), 
+  ) +
+  # Modifica las etiquetas
+  labs(x = 'Importancia') +
+  # Agrega títulos
+  ggtitle('Importancia de variables en el modelo bosque aleatorio') +
+  # Usa un tema predefinido
+  theme_bw() +
+  # Haz modificaciones
+  theme(
+    # Cambia los textos
+    text = element_text(family = 'Arial'),
+    # Cambia los títulos
+    axis.title.y = element_blank(),
+    # Quita el título de la leyenda
+    legend.title = element_blank()
+  )
+```
+
+ 
+Realizamos el ajuste final
+```{r}
+ajuste_bosque_final_test = ajuste_bosque_final%>% 
+  # Realiza el último ajuste con los datos de prueba que no habiamos usado
+  last_fit(data_split)
+
+# Matriz de confusión bosque 
+matriz_bosque= ajuste_bosque_final_test %>% 
+  collect_predictions() %>% 
+  conf_mat(truth = hormiga, estimate = .pred_class) 
+
+matriz_bosque %>% 
+  autoplot(type='heatmap')
+```
+
+
+Estas son con las predicciones para los de prueba
+
+```{r}
+predicciones <- ajuste_bosque_final%>%
+  collect_predictions()
+```
+
+
+
+
+
