@@ -60,3 +60,11 @@ primer_filtro_p %>%
 View(primer_filtro_p %>%
   group_by(giro_nombre, cluster) %>%
   count())
+
+
+#write.csv(primer_filtro_p,"Datos/transacciones_clusters.csv")
+set.seed(123)
+leon<- primer_filtro_p %>% sample_n(300,replace = FALSE)
+alexa <- primer_filtro_p %>% anti_join(leon) %>% sample_n(300,replace = FALSE)
+write.csv(leon,"Datos/leon.csv")
+write.csv(alexa,"Datos/alexa.csv")
