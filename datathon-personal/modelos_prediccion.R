@@ -232,15 +232,99 @@ ajuste_bosque_final = ajuste_bosque_final%>%
   # Realiza el último ajuste
   last_fit(data_split)
 
+# Estas son con los de entrenamiento 
 predicciones <- ajuste_bosque_final%>%
   collect_predictions()
 
 
 
-# Procedimiento para 
 
 
-# Los bosques aleatorios son el mejor modelo hasta ahora
-# print(matriz_arbol)
-# print(matriz_bosque)
-# print(matriz_de_confusion_ml)
+## Regresión logistica multinomial ----------------------------------------
+logit_multinomial = multinom_reg() %>% 
+  # Fija el motor
+  set_engine('nnet') %>% 
+  # Fija el modo
+  set_mode('classification')
+
+# Crea una receta
+receta = recipe(formula = class ~ ., data = entrenamiento) %>%
+  # Remueve las variables sin varianza
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  # Normaliza las variables numericas
+  step_normalize(all_numeric(), -all_outcomes())
+
+# Construye las muestras de validación cruzada con los datos de entrenamiento
+validacion_cruzada = vfold_cv(entrenamiento, v = 5)
+
+
+# Crea un flujo de trabajo
+modelo_multinomial = workflow() %>%
+  # Añade una receta
+  add_recipe(receta) %>% 
+  # Agrega un modelo
+  add_model(logit_multinomial) 
+
+# Ajusta el modelo multinomial
+ajuste_con_validacion = modelo_multinomial %>% 
+  fit_resamples(
+    # Usa las muestras de validación
+    resamples = validacion_cruzada,
+    # Define las metricas de criterio
+    metrics = metric_set(accuracy, sens, spec, roc_auc, kap)
+  )
+
+# Imprime las métricas
+metricas_multinomial = ajuste_con_validacion %>% 
+  collect_metrics()
+
+print(metricas_multinomial)
+
+# Ajusta el modelo final
+ajuste_ml_final = modelo_multinomial %>% 
+  last_fit(data_split) 
+
+# Revisa el conjunto de entrenamiento 
+matriz_entrenamiento = ajuste_ml_final %>%  
+  # Extrae el flujo de trabajo
+  extract_workflow() %>% 
+  # Ajusta en el entrenamiento completo
+  augment(entrenamiento) %>% 
+  # Revisa la matriz de confusion
+  conf_mat(truth = class, estimate = .pred_class) %>% 
+  # Crea un mapa de calor
+  autoplot(type = 'heatmap') 
+
+# Revisa el conjunto de prueba 
+matriz_prueba = ajuste_ml_final %>%  
+  # Extrae el flujo de trabajo
+  extract_workflow() %>% 
+  # Ajusta en el prueba completo
+  augment(prueba) %>% 
+  # Revisa la matriz de confusion
+  conf_mat(truth = class, estimate = .pred_class) %>% 
+  # Crea un mapa de calor
+  autoplot(type = 'heatmap')
+
+# Gracias a patchwork podemos combinar nuestros gráficos
+matriz_entrenamiento + matriz_prueba
+matriz_entrenamiento / matriz_prueba
+
+# Ajusta el modelo final
+ajuste_ml_final = modelo_multinomial %>% 
+  last_fit(data_split) 
+
+# Construye la matriz de confusión
+matriz_de_confusion_ml = ajuste_ml_final %>% 
+  collect_predictions() %>% 
+  conf_mat(truth = class, estimate = .pred_class) 
+
+# Imprime la matríz de confusión
+matriz_de_confusion_ml %>% 
+  # Crea un mapa de calor
+  autoplot(type = 'heatmap')
+
+# Extrae el resumen de todas las metricas
+matriz_de_confusion_ml %>% 
+  summary()
+
