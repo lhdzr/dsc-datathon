@@ -7,7 +7,7 @@ library(tidyverse)
 library(stopwords)
 library(topicmodels)
 
-dir <- "/Users/alexa/Carpetas locales/Datathon/datathon-personal"
+dir <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
 
 datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
   janitor::clean_names()
@@ -79,7 +79,7 @@ stop_words = tibble(palabra = c(stopwords('es'),'c','remite','presentado',
                                 'd','em','jal','com','001','019','pedro','guadalajara',
                                 'zapopan','650','2530000','16','00','ca','1','mexdf','pending',
                                 'mexico','ca','7','mexcmx','tijuana','stripe',
-                                'local','sc','str','morelia','mich','mexcmx','san','apodaca',
+                                'sc','str','morelia','mich','mexcmx','san','apodaca',
                                 'yuc','mty','amsterdam','nle','guadalupe','nicolas','ztl','s',
                                 'santiago','ver','juarez','merida','j','mex','pue','coah',
                                 'london','ja','benito','santa','miguel','conekta','ii',
@@ -132,28 +132,22 @@ pat <- paste0(sin_num, collapse = '|')
 
 library("quanteda")
 
-corpus <- corpus(datos$nombre_comercio)
+corpus <- corpus(datos_tot_no_ese$nombre_comercio)
 summary(corpus)
 
 
-data_corpus_inauguralsents <- 
-  corpus_reshape(corpus, to = "sentences")
-data_corpus_inauguralsents
+# data_corpus_inauguralsents <- 
+#   corpus_reshape(corpus, to = "sentences")
+# data_corpus_inauguralsents
 
 
 containstarget <- 
-  stringr::str_detect(texts(data_corpus_inauguralsents), pat)
+  stringr::str_detect((corpus), pat)
 
 summary(containstarget)
 
 data_corpus_inauguralsentssub <- 
   corpus_subset(data_corpus_inauguralsents, containstarget)
-
-#tail(texts(data_corpus_inauguralsentssub), 2)
-
-
-# reshape back to documents that contain only sentences with the target terms
-#corpus_reshape(data_corpus_inauguralsentssub, to = "documents")
 
 
 vector <- as.vector(data_corpus_inauguralsentssub)
@@ -172,7 +166,7 @@ trans_cliente_AGREGADOR <- primer_filtro_p%>%
   summarise(total_trans = n())
 
 
-table(primer_filtro_p$giro_nombre)
+
 
 
 
