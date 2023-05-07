@@ -31,7 +31,7 @@ datos_tot_no_ese <- datos%>%
 
 
 
-analisis = datos_tot_no_ese%>%
+analisis <- datos_tot_no_ese%>%
   mutate(id = row_number()
          )%>%
   
@@ -136,9 +136,9 @@ corpus <- corpus(datos_tot_no_ese$nombre_comercio)
 summary(corpus)
 
 
-# data_corpus_inauguralsents <- 
-#   corpus_reshape(corpus, to = "sentences")
-# data_corpus_inauguralsents
+data_corpus_inauguralsents <-
+  corpus_reshape(corpus, to = "sentences")
+data_corpus_inauguralsents
 
 
 containstarget <- 
@@ -146,9 +146,7 @@ containstarget <-
 
 summary(containstarget)
 
-data_corpus_inauguralsentssub <- 
-  corpus_subset(data_corpus_inauguralsents, containstarget)
-
+data_corpus_inauguralsentssub <- corpus_subset(data_corpus_inauguralsents, containstarget)
 
 vector <- as.vector(data_corpus_inauguralsentssub)
 
