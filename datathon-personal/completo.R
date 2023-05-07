@@ -133,8 +133,7 @@ vector <- as.vector(data_corpus_inauguralsentssub)
 # las transacciones de los negocios con los nombres que nos 
 # interesan 
 primer_filtro_p <- datos_tot_no_ese%>%
-  filter(nombre_comercio %in% vector)%>%
-  mutate()
+  filter(nombre_comercio %in% vector)
 
 
 
