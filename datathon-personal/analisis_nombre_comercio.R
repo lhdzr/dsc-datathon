@@ -3,7 +3,7 @@ library(tidyverse)
 library(dplyr)
 library(tidytext)
 library(tm)
-library(tidyverse)
+#library(tidyverse)
 library(stopwords)
 library(topicmodels)
 
@@ -136,9 +136,9 @@ corpus <- corpus(datos_tot_no_ese$nombre_comercio)
 summary(corpus)
 
 
-# data_corpus_inauguralsents <- 
-#   corpus_reshape(corpus, to = "sentences")
-# data_corpus_inauguralsents
+data_corpus_inauguralsents <- 
+   corpus_reshape(corpus, to = "sentences")
+data_corpus_inauguralsents
 
 
 containstarget <- 
