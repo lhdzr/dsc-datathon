@@ -7,7 +7,7 @@ library(tidyverse)
 library(stopwords)
 library(topicmodels)
 
-dir <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
+dir <- "datathon-personal"
 
 datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
   janitor::clean_names()
