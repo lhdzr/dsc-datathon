@@ -64,7 +64,11 @@ View(primer_filtro_p %>%
 
 #write.csv(primer_filtro_p,"Datos/transacciones_clusters.csv")
 set.seed(123)
-leon<- primer_filtro_p %>% sample_n(300,replace = FALSE)
-alexa <- primer_filtro_p %>% anti_join(leon) %>% sample_n(300,replace = FALSE)
-write.csv(leon,"Datos/leon.csv")
-write.csv(alexa,"Datos/alexa.csv")
+ids_leon <- sample((1:10000),300)
+ids_alexa <- setdiff(sample(1:10000),ids_leon) %>% sample(300)
+
+leon<- primer_filtro_p %>% filter(id_cliente %in% ids_leon)
+alexa<- primer_filtro_p %>% filter(id_cliente %in% ids_alexa)
+
+#write.csv(leon,"Datos/leon.csv")
+#write.csv(alexa,"Datos/alexa.csv")
