@@ -7,7 +7,7 @@ library(tm)
 library(stopwords)
 library(topicmodels)
 
-dir <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
+dir <- "datathon-personal"
 
 datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
   janitor::clean_names()
@@ -31,7 +31,7 @@ datos_tot_no_ese <- datos%>%
 
 
 
-analisis = datos_tot_no_ese%>%
+analisis <- datos_tot_no_ese%>%
   mutate(id = row_number()
          )%>%
   
@@ -135,9 +135,12 @@ library("quanteda")
 corpus <- corpus(datos_tot_no_ese$nombre_comercio)
 summary(corpus)
 
-
 data_corpus_inauguralsents <- 
    corpus_reshape(corpus, to = "sentences")
+
+data_corpus_inauguralsents <-
+  corpus_reshape(corpus, to = "sentences")
+
 data_corpus_inauguralsents
 
 
@@ -146,9 +149,7 @@ containstarget <-
 
 summary(containstarget)
 
-data_corpus_inauguralsentssub <- 
-  corpus_subset(data_corpus_inauguralsents, containstarget)
-
+data_corpus_inauguralsentssub <- corpus_subset(data_corpus_inauguralsents, containstarget)
 
 vector <- as.vector(data_corpus_inauguralsentssub)
 
