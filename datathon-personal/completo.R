@@ -1,19 +1,21 @@
-# Analisis de texto de los nombres de los comercios 
+# Limpieza y acomodo de los datos
+
 library(tidyverse)
 library(dplyr)
 library(tidytext)
 library(tm)
-#library(tidyverse)
 library(stopwords)
 library(topicmodels)
+library(gtools)
 
-#dir <- "datathon-personal"
 
 dir <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
 
 datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
   janitor::clean_names()%>%
+  # Numero de fila para identificar cada transaccion
   mutate(fila = row_number())%>%
+  # Agregar fechas 
   mutate(
     fecha_hora = ymd_hms(fecha_transaccion),
     mes = month(fecha_hora),
@@ -22,58 +24,23 @@ datos <- read_csv(paste0(dir,"/dataset_original.csv"))%>%
   )
 
 
-#names(datos)
-# Filtrar los rubro que son gastos escenciales 
-
-table(datos$giro_nombre)
-
+# Filtrar los rubro que son gastos escenciales o NO hormiga
 esenciales <- c('GOBIERNO','FARMACIAS','MEDICOS Y DENTISTAS',
-                 'SUPERMERCADOS','GASOLINERAS','TELECOMUNICACIONES',
-                 'COLEGIOS Y UNIVERSIDADES','HOSPITALES','EDUCACIN BASICA',
-                 'ASEGURADORAS','PEAJE','GUARDERIAS','REFACCIONES Y FERRETERIA',
+                'SUPERMERCADOS','GASOLINERAS','TELECOMUNICACIONES',
+                'COLEGIOS Y UNIVERSIDADES','HOSPITALES','EDUCACIN BASICA',
+                'ASEGURADORAS','PEAJE','GUARDERIAS','REFACCIONES Y FERRETERIA',
                 'TRANSPORTE AEREO')
 
 no_esenciales <- datos%>%
   filter(!giro_nombre %in% esenciales)%>%
+  # Nos quedamos solo con el nombre del comercio
   select(nombre_comercio)
 
+# Tabla completa con los posibles hormiga 
 datos_tot_no_ese <- datos%>%
-  filter(!giro_nombre %in% esenciales)
-
-
-
-analisis <- datos_tot_no_ese%>%
-  mutate(id = row_number()
-         )%>%
-  
-  #select(-row_num)%>%
-  as_tibble()
-
-# Extraer bigramas para encontrar nombres propios
-# palabras = analisis%>%
-#   unnest_tokens(
-#     input = propuestas,
-#     output = palabras,
-#     token = 'words', 
-#     #to_lower = FALSE
-#   )
-
-  # Filtramos con una expression regular para obtener solo nombres propios
-  # filter(
-  #   str_detect(
-  #     string = palabras,
-  #     pattern = '[A-ZAÉÍÓÚÑ]\\w+ [A-ZAÉÍÓÚÑ\\d][\\w]*'
-  #   )
-  # ) %>%
-  # mutate(
-  #   ners = str_replace_all(palabras,' ','_')
-  # )%>%
-  # select(
-  #   palabras,ners)
-
-
-# Crear diccionario
-#bigramas_dict = setNames(palabras$ners,palabras$bigramas)
+  filter(!giro_nombre %in% esenciales)%>%
+  mutate(id = row_number())%>%
+  as.tibble()
 
 
 # Palabras de paro
@@ -99,11 +66,7 @@ stop_words = tibble(palabra = c(stopwords('es'),'c','remite','presentado',
 
 
 # Bolsa de palabras
-data_words = analisis%>%
-  # mutate(
-  #   # Sustituir los bigramas en el texto completo 
-  #   propuestas = str_replace_all(propuestas,bigramas_dict)
-  # )%>%
+data_words = datos_tot_no_ese%>%
   # Tokenizar
   unnest_tokens(
     output = 'palabra',
@@ -115,8 +78,7 @@ data_words = analisis%>%
   )%>%
   count(id,palabra)
 
-
-
+# Identificar los numericos
 numericos <- data_words%>%
   group_by(palabra)%>%
   summarise(total = n())%>%
@@ -126,35 +88,37 @@ numericos <- data_words%>%
   pull(palabra)
 
 
+# Eliminar los numericos y solo quedarse con las palabras que se repiten
+# mas de 50 veces
 total_words <- data_words%>%
   group_by(palabra)%>%
   summarise(total = n())%>%
   filter(!palabra %in% numericos,
          total > 50)
 
-
+# Quitar los espacios en planco y hacer un vector con las palabras de interes
 sin_num <- total_words%>%
   mutate(palabra = removeNumbers(palabra))%>%
   filter(!palabra == "")%>%
   pull(palabra)
-  
+
+# Unir en el formato correcto
 pat <- paste0(sin_num, collapse = '|')
 
 
 library("quanteda")
 
+# Hacer corpus con los nombres de los comercios 
 corpus <- corpus(datos_tot_no_ese$nombre_comercio)
 summary(corpus)
 
-# data_corpus_inauguralsents <- 
-#    corpus_reshape(corpus, to = "sentences")
 
 data_corpus_inauguralsents <-
   corpus_reshape(corpus, to = "sentences")
 
 data_corpus_inauguralsents
 
-
+# Indentificar los que contienen las palabras que nos interesan
 containstarget <- 
   stringr::str_detect((corpus), pat)
 
@@ -165,150 +129,116 @@ data_corpus_inauguralsentssub <- corpus_subset(data_corpus_inauguralsents, conta
 vector <- as.vector(data_corpus_inauguralsentssub)
 
 
-# Esta base es con la que hacemos otros filtros posteriores
+# Filtrar la base de datos con todas las columns y 
+# las transacciones de los negocios con los nombres que nos 
+# interesan 
 primer_filtro_p <- datos_tot_no_ese%>%
   filter(nombre_comercio %in% vector)%>%
   mutate()
-  
-nombre_comercio <- c('oxxo','eats')
-giro_com <- c('MISCELANEAS','COMIDA RAPIDA')
+
+
+
+# Vamos a comenzar a definir gastos hormiga por reglas de decision 
+#nombre_comercio <- c('oxxo','eats')
+#giro_com <- c('MISCELANEAS','COMIDA RAPIDA')
 
 library(sjmisc)
 
-
-
 # Primer NO gastos hormiga 
 datos_1 <- datos%>%
+  # Marcar como no hormiga a los que son escenciales segun su giro
   mutate(hormiga = ifelse(giro_nombre %in% esenciales,0,
+                          # Marcar como hormiga a los casinos 
                           ifelse(mcc_nombre == "CASINOS CASAS DE JUEGO (APUESTAS INCLUYE BILLETES)",1,
                                  
-                                        NA)),
+                                 NA)),
+         # Definir columna tipo de acuerdo a comercio o giro
          tipo = ifelse(str_detect(nombre_comercio,"OXXO"),"OXXO",
                        ifelse(str_detect(nombre_comercio,"EATS"),"UBER",
-                                           ifelse(giro_nombre ==  "MISCELANEAS","MISCELANEAS",
-                                                  ifelse(giro_nombre == "COMIDA RAPIDA","COMIDA RAPIDA",
-                                                         NA))))
-         )%>%
+                              ifelse(giro_nombre ==  "MISCELANEAS","MISCELANEAS",
+                                     ifelse(giro_nombre == "COMIDA RAPIDA","COMIDA RAPIDA",
+                                            NA))))
+  )%>%
   filter(!is.na(tipo))%>%
   mutate(tipo = as.factor(tipo))
-         
-         
-
-
-
-
-
 
 
 
 
 # Segundo paso consiste en clasificar a ciertos tipo de gastos 
 # mensualmente 
+
+# La regla consiste en que se considera hormiga a los gastos 
+# Identificar id del cliente
 id_persona <- datos_1%>%
   pull(id_cliente)%>%
   unique()
 
-meses <- datos_1%>%
-  pull(mes)%>%
-  unique()
+# Identificar clientes
+# meses <- datos_1%>%
+#   pull(mes)%>%
+#   unique()
 
-#base2 <- data.frame()
-
+# Crear base que se va a ir llenando 
 mat <- matrix(0, ncol = 19)
 data2 <- as.data.frame(mat)
-data3 <- data2                                     # Duplicate data frame
+data3 <- data2  
+names_col <- names(datos_1)
 colnames(data3) <- names_col    # Create data frame
 data3 
 
 
 for (persona in id_persona){
-  for (mesi in meses){
+  #for (mesi in meses){
     
     datos_p <- datos_1%>%
-      filter(id_cliente == persona)%>%
-      filter(mes == mesi)
-      
-      # Total oxxo
-      tot_oxxo <- datos_p%>%
-        group_by(tipo)%>%
-        filter(tipo == "OXXO")%>%
-        nrow()
-      
-      # Total uber
-      tot_uber <- datos_p%>%
-        group_by(tipo)%>%
-        filter(tipo == "UBER")%>%
-        nrow()
-      
-      # Total miscelaneas
-      tot_mis <- datos_p%>%
-        group_by(tipo)%>%
-        filter(tipo == "MISCELANEAS")%>%
-        nrow()
-      
-      # Total comida rapida
-      tot_com <- datos_p%>%
-        group_by(tipo)%>%
-        filter(tipo == "COMIDA RAPIDA")%>%
-        nrow()
-      
-      base1 <- datos_p%>%
-        mutate(hormiga = ifelse(tipo == "OXXO" && tot_oxxo > 4,1,
-                                ifelse(tipo == "UBER" && tot_uber > 4,1,
-                                       ifelse(tipo == "MISCELANEAS" && tot_mis > 4,1,
-                                              ifelse(tipo == "COMIDA RAPIDA" && tot_com > 4,1,
-                                                     0)
-                                              
-                                              )))
-               )
-      
-      
+      filter(id_cliente == persona)
+    #%>%
+      #group_by(mes)
       
     
-  }
+    # Total oxxo
+    tot_oxxo <- datos_p%>%
+      group_by(tipo)%>%
+      filter(tipo == "OXXO")%>%
+      nrow()
+    
+    # Total uber
+    tot_uber <- datos_p%>%
+      group_by(tipo)%>%
+      filter(tipo == "UBER")%>%
+      nrow()
+    
+    # Total miscelaneas
+    tot_mis <- datos_p%>%
+      group_by(tipo)%>%
+      filter(tipo == "MISCELANEAS")%>%
+      nrow()
+    
+    # Total comida rapida
+    tot_com <- datos_p%>%
+      group_by(tipo)%>%
+      filter(tipo == "COMIDA RAPIDA")%>%
+      nrow()
+    
+    base1 <- datos_p%>%
+      mutate(hormiga = ifelse(tipo == "OXXO" && tot_oxxo > 10,1,
+                              ifelse(tipo == "UBER" && tot_uber > 10,1,
+                                     ifelse(tipo == "MISCELANEAS" && tot_mis > 10,1,
+                                            ifelse(tipo == "COMIDA RAPIDA" && tot_com > 10,1,
+                                                   0
+                                                   ))))
+      )%>%
+      as.data.frame()
+    
+    
+    
+    
+  #}
   
-  data3 <- smartbind(data3,as.data.frame(base1))
+  data3 <- smartbind(data3,base1)
   
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Otras revisiones 
-trans_cliente <- primer_filtro_p%>%
-  group_by(id_cliente)%>%
-  summarise(total_trans = n())
-
-
-trans_cliente_AGREGADOR <- primer_filtro_p%>%
-  group_by(id_cliente)%>%
-  filter(giro_nombre == "AGREGADOR")%>%
-  summarise(total_trans = n())
-
-
-
-
-
 
 
 

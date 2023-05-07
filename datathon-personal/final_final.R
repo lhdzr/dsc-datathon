@@ -1,8 +1,14 @@
-# Modelos de prediccion 
-
 # Leer datos
 library(gtools)
 library(lubridate)
+library(tidyverse)
+library(dplyr)
+library(tidytext)
+library(tm)
+library(stopwords)
+library(topicmodels)
+
+
 
 dir <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/Datos/"
 
@@ -14,6 +20,7 @@ leon <- read_csv(paste0(dir,"leon.csv"))%>%
 alexa <- read_csv(paste0(dir,"alexa.csv"))%>%
   filter(!is.na(hormiga))
 
+# Las transacciones que se evaluaron manualmente
 todos_muestra <- smartbind(as.data.frame(leon),as.data.frame(alexa))%>%
   filter(!hormiga == "9")%>%
   mutate(giro_nombre = as.factor(giro_nombre),
@@ -21,47 +28,38 @@ todos_muestra <- smartbind(as.data.frame(leon),as.data.frame(alexa))%>%
          entry_mode = as.factor(entry_mode),
          sexo_cliente = as.factor(sexo_cliente),
          nombre_comercio = as.factor(nombre_comercio),
-         
-         #id_cliente = as.factor(id_cliente),
          hormiga = as.factor(hormiga)
   )%>%
   as.data.frame()
 
-sum(is.na(todos_muestra))
-table(todos_muestra$hormiga)
 
-
+# Los clientes que clasificamos manualmente 
 muestra_clas <- todos_muestra%>%
   pull(id_cliente)%>%
   unique()
 
+
 dir_p <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
 
-v_datos_no_clas <- read_csv(paste0(dir_p,"/simulacion_hormiga.csv"))%>%
-  filter(id_cliente %in% muestra_clas)%>%
-  mutate(giro_nombre = as.factor(giro_nombre),
-         mcc_nombre = as.factor(mcc_nombre),
-         entry_mode = as.factor(entry_mode),
-         sexo_cliente = as.factor(sexo_cliente),
-         #id_cliente = as.factor(id_cliente),
-         hormiga = as.factor(hormiga)
-  )%>%
-  mutate(
-    fecha_hora = dmy_hm(fecha_transaccion),
-    mes = month(fecha_hora),
-    dia_sem = wday(fecha_hora),
-    dia_num = day(fecha_hora),
-    hora = hour(fecha_hora),
-    ano = year(fecha_hora)
-  )%>%
+# La base sin lo que clasificamos manualmene 
+v_datos_no_clas <- read_csv(paste0(dir_p,"/dataset_original.csv"))%>%
+   filter(!id_cliente %in% muestra_clas)%>%
+   mutate(giro_nombre = as.factor(giro_nombre),
+          mcc_nombre = as.factor(mcc_nombre),
+          entry_mode = as.factor(entry_mode),
+          sexo_cliente = as.factor(sexo_cliente),
+          #id_cliente = as.factor(id_cliente),
+          #hormiga = as.factor(hormiga)
+   )%>%
   pull(id_cliente)%>%
   unique()
-  
+
+# Elegir 25 id al azar
 muestra <- sample(v_datos_no_clas,size = 25, replace = FALSE)
 
 
-# NORMAL-------------------------------
-base_comp_test <- read_csv(paste0(dir_p,"/simulacion_hormiga.csv"))%>%
+# Filtrar los 25 al azar 
+base_comp_test <- read_csv(paste0(dir_p,"/dataset_original.csv"))%>%
   filter(id_cliente %in% muestra)%>%
   mutate(giro_nombre = as.factor(giro_nombre),
          mcc_nombre = as.factor(mcc_nombre),
@@ -69,22 +67,12 @@ base_comp_test <- read_csv(paste0(dir_p,"/simulacion_hormiga.csv"))%>%
          sexo_cliente = as.factor(sexo_cliente),
          hormiga = "NA",
          hormiga = as.character(hormiga)
-         #id_cliente = as.factor(id_cliente),
-         #hormiga = as.factor(hormiga)
-  )%>%
-  # mutate(
-  #   fecha_hora = dmy_hm(fecha_transaccion),
-  #   mes = month(fecha_hora),
-  #   dia_sem = wday(fecha_hora),
-  #   dia_num = day(fecha_hora),
-  #   hora = hour(fecha_hora),
-  #   ano = year(fecha_hora),
-  #   
-  # )%>%
+         )%>%
   filter(id_cliente %in% muestra)%>%
   as.data.frame()%>%
+  # Unir la base con los 25 clasificados
   smartbind(todos_muestra)
-  
+
 
 
 
@@ -135,29 +123,11 @@ if(require(GGally) == FALSE){
   install.packages('GGally')                                                 
 }
 
-dir_p <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
+#dir_p <- "/Users/alexa/Carpetas locales/Datathon/dsc-datathon/datathon-personal"
 
-  
+
 
 library(lubridate)
-
-# datos <- read_csv(paste0(dir,"/simulacion_hormiga.csv"))%>%
-#   mutate(giro_nombre = as.factor(giro_nombre),
-#          mcc_nombre = as.factor(mcc_nombre),
-#          entry_mode = as.factor(entry_mode),
-#          sexo_cliente = as.factor(sexo_cliente),
-#          id_cliente = as.factor(id_cliente),
-#          hormiga = as.factor(hormiga)
-#          )%>%
-#   mutate(
-#     fecha_hora = dmy_hm(fecha_transaccion),
-#     mes = month(fecha_hora),
-#     dia_sem = wday(fecha_hora),
-#     dia_num = day(fecha_hora),
-#     hora = hour(fecha_hora),
-#     ano = year(fecha_hora),
-#     
-#   )
 
 
 # Separa en conjunto de prueba y entrenamiento
@@ -169,34 +139,24 @@ data_split = todos_muestra %>%
 entrenamiento = training(data_split)
 prueba = testing(data_split)
 
-#nrow(datos)
 
 nrow(entrenamiento)
 nrow(prueba)
 
 # Crea una receta
-# tipo_gasto si es hormiga o no 
 
 # Para random forest no es necesario normalizar pues no se basa en 
 # distancias (en knn o k means si es necesario normalizar)
 receta = recipe(formula = hormiga ~ giro_nombre+ mcc_nombre +
                   monto_transaccion + tipo_transaccion, data = entrenamiento) 
-#%>%
-  # Remueve las variables sin varianza
-  #step_zv(all_numeric(), -all_outcomes()) %>%
-  # Normaliza las variables numericas
-  #step_normalize(all_numeric(), -all_outcomes())
 
 # Construye las muestras de validación cruzada con los datos de entrenamiento
 validacion_cruzada = vfold_cv(entrenamiento, v = 5)
 
 
 
-
-
 # Fija una semilla
 set.seed(123)
-
 
 # Creamos el cascarón del modelo de bosques aleatorios
 ajuste_bosque = rand_forest() %>% 
@@ -300,6 +260,10 @@ ajuste_bosque_final %>%
     legend.title = element_blank()
   )
 
+# Las variables más importantes 
+# mcc nombre , monto transaccion, giro nombre, tipo transaccion
+
+
 # Realizamos el ajuste final
 ajuste_bosque_final_test = ajuste_bosque_final%>% 
   # Realiza el último ajuste con los datos de prueba que no habiamos usado
@@ -316,12 +280,19 @@ matriz_bosque %>%
 
 
 # Estas son con las predicciones para los de prueba
-predicciones <- ajuste_bosque_final%>%
-  collect_predictions()
+predicciones <- ajuste_bosque_final_test%>%
+  collect_predictions()%>%
+  rename("n_row" = ".row",
+         "hormiga_prediccion" = ".pred_class")%>%
+  select(n_row,hormiga_prediccion)
 
 
-pred_all <- ajuste_bosque_final%>%
+
+final <- todos_muestra%>%
+  mutate(n_row = row_number())%>%
+  inner_join(predicciones, by= "n_row")
   
-
-
-
+  
+  
+#write.csv(final, "final.csv", row.names = FALSE)
+  
